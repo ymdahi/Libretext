@@ -1,0 +1,26 @@
+{
+  "name": "libretext",
+  "version": "1.0.0",
+  "description": "Collection of frontend and backend scripts. Dependencies should be kept in subfolders.",
+  "directories": {
+    "test": "test"
+  },
+  "devDependencies": {
+    "html-loader-jest": "^0.2.1",
+    "jest": "^26.6.0",
+    "puppeteer": "^5.3.1",
+    "jest-puppeteer": "^4.4.0"
+  },
+  "scripts": {
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LibreTexts/Libretext.git"
+  },
+  "author": "LibreTexts, Inc.",
+  "bugs": {
+    "url": "https://github.com/LibreTexts/Libretext/issues"
+  },
+  "homepage": "https://github.com/LibreTexts/Libretext#readme"
+}
