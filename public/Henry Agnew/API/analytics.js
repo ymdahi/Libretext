@@ -10,9 +10,8 @@ if (!window["analytics.js"]) {
         let coverpage;
         let login = '';
         // const root = "home.miniland1333.com"
-    
-    
-    
+        
+        
         if (navigator.webdriver || isUserAutomated || window.matchMedia('print').matches) {
             $content.show();
             return; //exit if not client-facing
@@ -206,8 +205,12 @@ if (!window["analytics.js"]) {
                     alert('No coverpage found! Aborting');
                     return null;
                 }
-                
-                coverpage = await LibreTexts.getAPI(`https://${subdomain}.libretexts.org/${coverpage}`);
+            }
+            if (coverpage && !coverpage.id) {
+                if (typeof coverpage === 'string')
+                    coverpage = await LibreTexts.getAPI(`https://${subdomain}.libretexts.org/${coverpage}`);
+                else
+                    coverpage = await LibreTexts.getAPI(coverpage);
             }
             return `${subdomain}-${coverpage.id}`;
         }
