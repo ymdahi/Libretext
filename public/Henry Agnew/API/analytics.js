@@ -275,6 +275,7 @@ if (!window["analytics.js"]) {
                     url: window.location.href,
                     timestamp: timestamp.toUTCString(),
                     pageSession: sessionID,
+                    beeline: localStorage.getItem('beeline') || 'off',
                     timeMe: TimeMe.getTimeOnCurrentPageInSeconds()
                 };
                 
