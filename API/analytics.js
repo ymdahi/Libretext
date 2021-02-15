@@ -1,12 +1,25 @@
 const timestamp = require("console-timestamp");
+const check = require('./checkAuthorization');
 const fs = require("fs-extra");
 const crypto = require('crypto');
+const jose = require('jose');
 const secure = require('./secure.json');
+const zipLocal = require('zip-local')
+const util = require('util');
 const express = require('express');
+const async = require("async");
 const app = express();
 const cors = require('cors');
 // app.use(cors());
-app.use(express.text());
+
+const {
+    JWE,   // JSON Web Encryption (JWE)
+    JWK,   // JSON Web Key (JWK)
+    JWKS,  // JSON Web Key Set (JWKS)
+    JWS,   // JSON Web Signature (JWS)
+    JWT,   // JSON Web Token (JWT)
+    errors // errors utilized by jose
+} = jose
 
 //middleware configuration and initialization
 const basePath = '/ay';
@@ -24,7 +37,7 @@ app.get(basePath + '/ping', (req, res) => {
     res.send('PONG');
 });
 
-app.post(basePath + '/receive', async (req, res) => {
+app.post(basePath + '/receive', express.text(), async (req, res) => {
     res.send('Done');
     // res.status(200).end();
     // console.log(req.body);
@@ -66,100 +79,108 @@ app.post(basePath + '/receive', async (req, res) => {
 })
 
 //TODO: Make this work
-app.put(basePath + '/secureAccess/:library([a-z]+)-:bookId(\\d+)', async (req, res) => {
-    res.send('Here\'s some data');
+app.put(basePath + '/secureAccess/:library([a-z]+)-:bookId(\\d+)', express.json(), check, async (req, res) => {
+    // res.send('Here\'s some data');
+    if (req?.params?.library && req?.params?.library) {
+        let courseName = `${req.params.library}-${req.params.bookId}`;
+        let filename;
+        try {
+            filename = await secureAccess(courseName);
+        } catch (e) {
+            res.status(400);
+            res.send(e.message);
+            return;
+        }
+        if (filename) {
+            res.sendFile(filename, {root: __dirname});
+            return;
+        }
+    }
     
-    let body = [];
-    request.on('data', (chunk) => {
-        body.push(chunk);
-    }).on('end', async () => {
-        let key = Buffer.concat(body).toString();
-        let courseName = secure.keys[key];
-        if (courseName)
-            await secureAccess(courseName);
-        else
-            responseError('Incorrect key', 403)
-    });
+    //else fallback to failure
+    res.status(400);
+    res.send('Invalid Request');
 });
 
 async function secureAccess(courseName) {
-    await fs.emptyDir(`./analyticsData/ZIP/${courseName}/RAW`);
     await fs.emptyDir(`./analyticsData/ZIP/${courseName}/CSV`);
-    await fs.copy(`./analyticsData/${courseName}`, `./analyticsData/ZIP/${courseName}/RAW`);
+    await fs.emptyDir(`./analyticsData/ZIP/${courseName}/JSON`);
     
     console.log(`Beginning ${courseName}`);
-    //Reprocessing raw data
-    let months = await fs.readdir(`./analyticsData/ZIP/${courseName}/RAW`, {withFileTypes: true});
-    
-    const stats = await fs.stat(`./analyticsSecure/secureAccess-${courseName}.zip`);
-    if (Date.now() - stats.mtime < 10 * 60000) { //10 minute cache
-        console.log('Found in cache');
+    const stats = await fs.exists(`./analyticsSecure/secureAccess-${courseName}.zip`)
+        && await fs.stat(`./analyticsSecure/secureAccess-${courseName}.zip`);
+
+    if (stats && Date.now() - stats.mtime < 10 * 60000) { //10 minute cache
+        console.log(`Found ${courseName} in cache`);
     }
     else {
         console.time('Reprocessing');
-        for (let i = 0; i < months.length; i++) {
-            let students = await fs.readdir(`./analyticsData/ZIP/${courseName}/RAW`, {withFileTypes: true});
-            for (let j = 0; j < students.length; j++) {
-                let student = students[j];
-                if (student.isFile()) {
-                    student = student.name;
-                    const fileRoot = student.replace('.txt', '');
-                    let lines = await fs.readFile(`./analyticsData/ZIP/${courseName}/RAW/${student}`);
-                    lines = lines.toString().replace(/\n$/, "").split('\n');
-                    lines = lines.map((line) => {
-                        try {
-                            let result = JSON.parse(line);
-                            return result;
-                        } catch (e) {
-                            console.error(`Invalid: ${line}`);
-                            return undefined;
-                        }
-                    });
-                    let result = lines;
-                    let resultCSV = 'courseName, library, id, platform, verb, pageURL, pageID, timestamp, pageSession, timeMe, [type or percent]';
-                    
-                    //CSV Handling
-                    for (let k = 0; k < result.length; k++) {
-                        let line = lines[k];
-                        if (!line) {
-                            continue;
-                        }
-                        resultCSV += `\n${line.actor.courseName}##${line.actor.library}##${line.actor.id}##${line.actor.platform || 'undefined'}##${line.verb}##${line.object.page}##${line.object.id}##"${line.object.timestamp}"##${line.object.pageSession}##${line.object.timeMe}`;
-                        switch (line.verb) {
-                            case 'left':
-                                resultCSV += `##${line.type}`;
-                                break;
-                            case 'read':
-                                resultCSV += `##${line.result.percent}`;
-                                break;
-                            case 'answerReveal':
-                                resultCSV += `##${line.result.answer}`;
-                                break;
-                        }
-                        
-                    }
-                    resultCSV = resultCSV.replace(/,/g, '%2C');
-                    resultCSV = resultCSV.replace(/##/g, ',');
-                    
-                    await fs.writeFile(`./analyticsData/ZIP/${courseName}/CSV/${fileRoot}.csv`, resultCSV);
+        let students = await fs.readdir(`./analyticsData/ay-${courseName}`, {withFileTypes: true});
+        students = students.filter(f => f.isFile());
+        await async.map(students,  async (student) => {
+            student = student.name;
+            const fileRoot = student.replace('.txt', '');
+            let lines = await fs.readFile(`./analyticsData/ay-${courseName}/${student}`);
+            lines = lines.toString().replace(/\n$/, "").split('\n');
+            lines = lines.map((line) => {
+                try {
+                    return JSON.parse(line);
+                } catch (e) {
+                    console.error(`Invalid: ${line}`);
+                    return undefined;
                 }
+            });
+            let resultCSV = 'courseName, library, id, platform, verb, pageURL, pageID, timestamp, pageSession, timeMe, beeline status, [type or percent],';
+            resultCSV = resultCSV.replace(/,/g, '##');
+            
+            //CSV Handling
+            for (let line of lines) {
+                if (!line)
+                    continue;
+                resultCSV += `\n${line.actor.courseName}##${line.object.subdomain}##${line.actor.id}##${line.actor.platform}##${line.verb}##${line.object.url}##${line.object.id}##"${line.object.timestamp}"##${line.object.pageSession}##${line.object.timeMe}##${line.object.beeline}`;
+                switch (line.verb) {
+                    case 'left':
+                        resultCSV += `##${line.type}`;
+                        break;
+                    case 'read':
+                        resultCSV += `##${line.result.percent}`;
+                        break;
+                    case 'answerReveal':
+                        resultCSV += `##${line.result.answer}`;
+                        break;
+                }
+                
             }
-        }
+            //escape any commas already in file
+            resultCSV = resultCSV.replace(/,/g, '%2C');
+            resultCSV = resultCSV.replace(/##/g, ',');
+            
+            await fs.writeFile(`./analyticsData/ZIP/${courseName}/JSON/${fileRoot}.json`, JSON.stringify(lines));
+            await fs.writeFile(`./analyticsData/ZIP/${courseName}/CSV/${fileRoot}.csv`, resultCSV);
+        })
         console.timeEnd('Reprocessing');
+        
+        //create output zipfile
         console.time('Compressing');
         await fs.ensureDir('./analyticsSecure');
-        zipLocal.sync.zip(`./analyticsData/ZIP/${courseName}`).compress().save(`./analyticsSecure/secureAccess-${courseName}.zip`);
+        zipLocal.zip = util.promisify(zipLocal.zip);
+        let zip = await zipLocal.zip(`./analyticsData/ZIP/${courseName}`);
+        zip.compress();
+        zip.save = util.promisify(zip.save);
+        await zip.save(`./analyticsSecure/secureAccess-${courseName}.zip`);
+        
         console.timeEnd('Compressing');
     }
     
-    await fs.emptyDir(`./analyticsData/ZIP/${courseName}`);
-    console.log(`Secure Access ${courseName} ${ip}`);
+    // await fs.emptyDir(`./analyticsData/ZIP/${courseName}`);
+    console.log(`Secure Access ${courseName}`);
     
-    res.sendFile(`./analyticsSecure/secureAccess-${courseName}.zip`)
+    return `./analyticsSecure/secureAccess-${courseName}.zip`;
 }
 
-//createLinker('chem-2737')
+// createLinker('chem-2737')
 
+//TODO: Get this to work
 async function createLinker(courseName) {
     let students = await fs.readdir(`./analyticsData/ay-${courseName}`, {withFileTypes: true});
     let output = '';
@@ -172,8 +193,9 @@ async function createLinker(courseName) {
             user2 += decipher.final('utf8');
             
             console.log(user2);
-            output +=`${user}, ${user2}\n`;
+            output += `${user}, ${user2}\n`;
         }
     }
+    // await fs.writeFile('linker.csv',output);
     // console.log(output);
 }
