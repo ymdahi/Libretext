@@ -22,12 +22,26 @@ const prefix = '/elevate';
 const botUsername = 'LibreBot';
 
 //express.js endpoints
+app.put(`${prefix}/createPage`, createPage);
 app.put(`${prefix}/createSandbox`, createSandbox);
 app.put(`${prefix}/cleanPath`, cleanPath);
 app.put(`${prefix}/fork`, fork);
 app.put(`${prefix}/manageUser/:method`, manageUser);
 app.put(`${prefix}/getUsers/:group.:format`, getUsersInGroup);
 app.get(`${prefix}`, (req, res) => res.send('Hello World!'));
+
+/**
+ * Creates a page
+ * @param {Request} req 
+ * @param {Response} res 
+ */
+ async function createSandbox(req, res) {
+    
+    const body = req.body;
+    console.log(body);
+
+    
+ }
 
 /**
  * Creates a user sandbox and limits permissions to just that user

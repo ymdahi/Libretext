@@ -82,9 +82,9 @@ async function handler(request, response) {
         }
     }
     // all subsequent endpoints must be same-origin of libretexts.org
-    else if (!request.headers.origin || !request.headers.origin.endsWith('libretexts.org')) {
-        responseError('Unauthorized', 401);
-    }
+    // else if (!request.headers.origin || !request.headers.origin.endsWith('libretexts.org')) {
+    //     responseError('Unauthorized', 401);
+    // }
     // access anonymous (GET) /contents endpoint
     // https://success.mindtouch.com/Integrations/API/API_Calls/pages/pages%2F%2F%7Bpageid%7D%2F%2Fcontents_(GET)
     else if (url.startsWith('/contents')) {
@@ -114,6 +114,43 @@ async function handler(request, response) {
             responseError(request.method + ' Not Acceptable', 406);
         }
     }
+
+    else if (url === '/createPage') {
+        if (request.method === 'PUT') {
+            response.writeHead(200, {'Content-Type': 'application/json'});
+            let body = [];
+            request.on('data', (chunk) => {
+                body.push(chunk);
+            }).on('end', async () => {
+                body = Buffer.concat(body).toString();
+                let data = JSON.parse(body);
+                let safeTitle = encodeURIComponent(data.title.replace(/ /g,"_"));
+                // console.log(contents);
+                let path = `Sandboxes/${data.username}/${safeTitle}`;
+                // console.log(path);
+                // console.log(safeTitle);
+                // console.log(data);
+
+                let requests = await LibreTexts.authenticatedFetch(path, `contents?title=${data.title}&edittime=now`, data.subdomain, 'LibreBot', {
+                    method: 'POST',
+                    body: data.contents
+                });
+
+                if (requests.ok)
+                    response.write(await requests.text());
+                else
+                    responseError(`${requests.statusText}\n${await requests.text()}`, 400);
+                
+                response.end();
+
+               
+            });
+        }
+        else {
+            responseError(request.method + ' Not Acceptable', 406);
+        }
+    }
+
     // store JSON of Commons books from batch.libretexts.org
     else if (url === '/refreshList') {
         if (request.method === 'PUT') {
